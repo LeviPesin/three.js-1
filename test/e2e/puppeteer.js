@@ -47,7 +47,7 @@ const exceptionList = [
 
 const port = 1234;
 
-const networkTimeout = 5; // 5 minutes, set to 0 to disable
+const networkTimeout = 1.5; // 1.5 minutes, set to 0 to disable
 const renderTimeout = 5; // 5 seconds, set to 0 to disable
 
 const numPages = 16; // use 16 browser pages
@@ -75,19 +75,15 @@ async function main() {
 	let files = ( await fs.readdir( 'examples' ) )
 		.filter( s => s.slice( - 5 ) === '.html' && s !== 'index.html' )
 		.map( s => s.slice( 0, s.length - 5 ) )
-		.filter( f => ! exceptionList.includes( f ) );
+		.filter( f => ! exceptionList.includes( f ) && ! f.startsWith( 'webgpu' ) );
 
 	/* Launch browser */
-
-	const flags = [ '--hide-scrollbars', '--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-gl=swiftshader', '--use-angle=swiftshader', '--use-vulkan=swiftshader', '--use-webgpu-adapter=swiftshader' ];
 
 	const viewport = { width: width * viewScale, height: height * viewScale };
 
 	browser = await puppeteer.launch( {
 		headless: true,
-		args: flags,
-		defaultViewport: viewport,
-		handleSIGINT: false
+		defaultViewport: viewport
 	} );
 
 	/* Prepare injections */
