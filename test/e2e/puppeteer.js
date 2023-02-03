@@ -104,9 +104,14 @@ async function main() {
 
 	/* Loop for each file */
 
-	const queue = [];
-	for ( const file of files ) queue.push( makeAttempt( pages, cleanPage, file ) );
-	await Promise.all( queue );
+	for ( let i = 0; i < 4; i ++ ) {
+
+		const queue = [];
+		for ( let j = Math.floor( files.length * i / 4 ); j < Math.floor( files.length * ( i + 1 ) / 4 ); j ++ )
+			queue.push( makeAttempt( pages, cleanPage, files[ j ] ) );
+		await Promise.all( queue );
+
+	}
 
 	close();
 
@@ -297,8 +302,6 @@ async function makeAttempt( pages, cleanPage, file ) {
 			}
 
 		}
-
-		await page.screenshot();
 
 	} catch ( e ) { 
 
