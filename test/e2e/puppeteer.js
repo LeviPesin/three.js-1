@@ -1,8 +1,6 @@
-import chalk from 'chalk';
 import puppeteer from 'puppeteer';
 import express from 'express';
 import path from 'path';
-import pixelmatch from 'pixelmatch';
 import jimp from 'jimp';
 import * as fs from 'fs/promises';
 
@@ -78,13 +76,9 @@ const exceptionList = [
 /* CONFIG VARIABLES END */
 
 const port = 1234;
-const pixelThreshold = 0.1; // threshold error in one pixel
-const maxDifferentPixels = 0.05; // at most 5% different pixels
 
 const networkTimeout = 5; // 5 minutes, set to 0 to disable
 const renderTimeout = 5; // 5 seconds, set to 0 to disable
-
-const numAttempts = 2; // perform 2 attempts before failing
 
 const numPages = 16; // use 16 browser pages
 
@@ -93,11 +87,6 @@ const numCIJobs = 4; // GitHub Actions run the script in 4 threads
 const width = 400;
 const height = 250;
 const viewScale = 2;
-const jpgQuality = 95;
-
-console.red = msg => console.log( chalk.red( msg ) );
-console.yellow = msg => console.log( chalk.yellow( msg ) );
-console.green = msg => console.log( chalk.green( msg ) );
 
 let browser;
 
@@ -166,12 +155,10 @@ async function main() {
 
 	/* Prepare pages */
 
-	const errorMessagesCache = [];
-
 	const pages = await browser.pages();
 	while ( pages.length < numPages && pages.length < files.length ) pages.push( await browser.newPage() );
 
-	for ( const page of pages ) await preparePage( page, injection, build, errorMessagesCache );
+	for ( const page of pages ) await preparePage( page, injection, build );
 
 	/* Loop for each file */
 
@@ -185,38 +172,11 @@ async function main() {
 	}
 	await queue.waitForAll();
 
-	/* Finish */
-
-	failedScreenshots.sort();
-	const list = failedScreenshots.join( ' ' );
-
-	if ( isMakeScreenshot && failedScreenshots.length ) {
-
-		console.red( 'List of failed screenshots: ' + list );
-		console.red( `If you are sure that everything is correct, try to run "npm run make-screenshot ${ list }". If this does not help, try increasing idleTime and parseTime variables in /test/e2e/puppeteer.js file. If this also does not help, add remaining screenshots to the exception list.` );
-		console.red( `${ failedScreenshots.length } from ${ files.length } screenshots have not generated succesfully.` );
-
-	} else if ( isMakeScreenshot && ! failedScreenshots.length ) {
-
-		console.green( `${ files.length } screenshots succesfully generated.` );
-
-	} else if ( failedScreenshots.length ) {
-
-		console.red( 'List of failed screenshots: ' + list );
-		console.red( `If you are sure that everything is correct, try to run "npm run make-screenshot ${ list }". If this does not help, try increasing idleTime and parseTime variables in /test/e2e/puppeteer.js file. If this also does not help, add remaining screenshots to the exception list.` );
-		console.red( `TEST FAILED! ${ failedScreenshots.length } from ${ files.length } screenshots have not rendered correctly.` );
-
-	} else {
-
-		console.green( `TEST PASSED! ${ files.length } screenshots rendered correctly.` );
-
-	}
-
 	setTimeout( close, 300, failedScreenshots.length );
 
 }
 
-async function preparePage( page, injection, build, errorMessages ) {
+async function preparePage( page, injection, build ) {
 
 	/* let page.file, page.pageSize, page.error */
 
@@ -248,43 +208,6 @@ async function preparePage( page, injection, build, errorMessages ) {
 				return arg;
 			}
 		} ) );
-
-		let text = args.join( ' ' ); // https://github.com/puppeteer/puppeteer/issues/3397#issuecomment-434970058
-
-		text = text.trim();
-		if ( text === '' ) return;
-
-		text = file + ': ' + text.replace( /\[\.WebGL-(.+?)\] /g, '' );
-
-		if ( text === `${ file }: JSHandle@error` ) {
-
-			text = `${ file }: Unknown error`;
-
-		}
-
-		if ( text.includes( 'Unable to access the camera/webcam' ) ) {
-
-			return;
-
-		}
-
-		if ( errorMessages.includes( text ) ) {
-
-			return;
-
-		}
-
-		errorMessages.push( text );
-
-		if ( type === 'warning' ) {
-
-			console.yellow( text );
-
-		} else {
-
-			page.error = text;
-
-		}
 
 	} );
 
@@ -416,19 +339,17 @@ async function makeAttempt( pages, failedScreenshots, cleanPage, isMakeScreensho
 
 				throw new Error( `Error happened while rendering file ${ file }: ${ e }` );
 
-			} /* else { // This can mean that the example doesn't use requestAnimationFrame loop
-				console.yellow( `Render timeout exceeded in file ${ file }` );
-			} */ // TODO: fix this
+			}
 
 		}
 
-		const screenshot = ( await jimp.read( await page.screenshot() ) ).scale( 1 / viewScale ).quality( jpgQuality );
+		const screenshot = ( await jimp.read( await page.screenshot() ) ).scale( 1 / viewScale );
 
 		if ( page.error !== undefined ) throw new Error( page.error );
 
 	} catch ( e ) {
 
-		console.red( e );
+		console.error( e );
 		failedScreenshots.push( file );
 
 	}
