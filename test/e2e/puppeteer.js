@@ -42,13 +42,12 @@ async function main() {
 
 	const cleanPage = await fs.readFile( 'test/e2e/clean-page.js', 'utf8' );
 	const injection = await fs.readFile( 'test/e2e/deterministic-injection.js', 'utf8' );
-	const build = ( await fs.readFile( 'build/three.module.js', 'utf8' ) ).replace( /Math\.random\(\) \* 0xffffffff/g, 'Math._random() * 0xffffffff' );
 
 	/* Prepare pages */
 
 	const pages = await browser.pages();
 	while ( pages.length < numPages ) pages.push( await browser.newPage() );
-	for ( const page of pages ) await preparePage( page, injection, build );
+	for ( const page of pages ) await preparePage( page, injection );
 
 	/* Loop for each file */
 
@@ -65,12 +64,11 @@ async function main() {
 
 }
 
-async function preparePage( page, injection, build ) {
+async function preparePage( page, injection ) {
 
 	/* let page.file, page.pageSize */
 
 	await page.evaluateOnNewDocument( injection );
-	await page.setRequestInterception( true );
 
 	page.on( 'response', async ( response ) => {
 
@@ -83,24 +81,6 @@ async function preparePage( page, injection, build ) {
 			}
 
 		} catch {}
-
-	} );
-
-	page.on( 'request', async ( request ) => {
-
-		if ( request.url() === `http://localhost:${ port }/build/three.module.js` ) {
-
-			await request.respond( {
-				status: 200,
-				contentType: 'application/javascript; charset=utf-8',
-				body: build
-			} );
-
-		} else {
-
-			await request.continue();
-
-		}
 
 	} );
 
