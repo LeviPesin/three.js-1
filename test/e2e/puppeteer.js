@@ -4,35 +4,6 @@ import path from 'path';
 import jimp from 'jimp';
 import * as fs from 'fs/promises';
 
-class PromiseQueue {
-
-	constructor( func, ...args ) {
-
-		this.func = func.bind( this, ...args );
-		this.promises = [];
-
-	}
-
-	add( ...args ) {
-
-		const promise = this.func( ...args );
-		this.promises.push( promise );
-		promise.then( () => this.promises.splice( this.promises.indexOf( promise ), 1 ) );
-
-	}
-
-	async waitForAll() {
-
-		while ( this.promises.length > 0 ) {
-
-			await Promise.all( this.promises );
-
-		}
-
-	}
-
-}
-
 /* CONFIG VARIABLES START */
 
 const idleTime = 9; // 9 seconds - for how long there should be no network requests
@@ -102,31 +73,10 @@ async function main() {
 
 	/* Find files */
 
-	const isMakeScreenshot = process.argv[ 2 ] === '--make';
-
-	const exactList = process.argv.slice( isMakeScreenshot ? 3 : 2 )
-		.map( f => f.replace( '.html', '' ) );
-
-	const isExactList = exactList.length !== 0;
-
 	let files = ( await fs.readdir( 'examples' ) )
 		.filter( s => s.slice( - 5 ) === '.html' && s !== 'index.html' )
 		.map( s => s.slice( 0, s.length - 5 ) )
-		.filter( f => isExactList ? exactList.includes( f ) : ! exceptionList.includes( f ) );
-
-	if ( isExactList ) {
-
-		for ( const file of exactList ) {
-
-			if ( ! files.includes( file ) ) {
-
-				console.log( `Warning! Unrecognised example name: ${ file }` );
-
-			}
-
-		}
-
-	}
+		.filter( f => ! exceptionList.includes( f ) );
 
 	/* Launch browser */
 
@@ -162,17 +112,16 @@ async function main() {
 
 	/* Loop for each file */
 
-	const failedScreenshots = [];
-
-	const queue = new PromiseQueue( makeAttempt, pages, failedScreenshots, cleanPage, isMakeScreenshot );
 	for ( let i = 0; i < numCIJobs; i ++ ) {
+
+		const queue = [];
 		for ( let j = Math.floor( files.length * i / numCIJobs ); j < Math.floor( files.length * ( i + 1 ) / numCIJobs ); j ++ )
-			queue.add( files[ j ] );
+			queue.push( makeAttempt( pages, cleanPage, files[ j ] ) );
+		await Promise.all( queue );
 
 	}
-	await queue.waitForAll();
 
-	setTimeout( close, 300, failedScreenshots.length );
+	setTimeout( close, 300, 0 );
 
 }
 
@@ -183,33 +132,7 @@ async function preparePage( page, injection, build ) {
 	await page.evaluateOnNewDocument( injection );
 	await page.setRequestInterception( true );
 
-	page.on( 'console', async msg => {
-
-		const type = msg.type();
-
-		if ( type !== 'warning' && type !== 'error' ) {
-
-			return;
-
-		}
-
-		const file = page.file;
-
-		if ( file === undefined ) {
-
-			return;
-
-		}
-
-		const args = await Promise.all( msg.args().map( async arg => {
-			try {
-				return await arg.executionContext().evaluate( arg => arg instanceof Error ? arg.message : arg, arg );
-			} catch ( e ) { // Execution context might have been already destroyed
-				return arg;
-			}
-		} ) );
-
-	} );
+	page.on( 'console', () => {} );
 
 	page.on( 'response', async ( response ) => {
 
@@ -245,7 +168,7 @@ async function preparePage( page, injection, build ) {
 
 }
 
-async function makeAttempt( pages, failedScreenshots, cleanPage, isMakeScreenshot, file, attemptID = 0 ) {
+async function makeAttempt( pages, cleanPage, file ) {
 
 	const page = await new Promise( ( resolve, reject ) => {
 
@@ -343,24 +266,19 @@ async function makeAttempt( pages, failedScreenshots, cleanPage, isMakeScreensho
 
 		}
 
-		const screenshot = ( await jimp.read( await page.screenshot() ) ).scale( 1 / viewScale );
+		await jimp.read( await page.screenshot() );
 
 		if ( page.error !== undefined ) throw new Error( page.error );
 
-	} catch ( e ) {
+	} finally {
 
-		console.error( e );
-		failedScreenshots.push( file );
+		page.file = undefined; // release lock
 
 	}
-
-	page.file = undefined; // release lock
 
 }
 
 function close( exitCode = 1 ) {
-
-	console.log( 'Closing...' );
 
 	if ( browser !== undefined ) browser.close();
 	server.close();
