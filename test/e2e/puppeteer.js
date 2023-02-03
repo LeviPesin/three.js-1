@@ -86,7 +86,7 @@ const renderTimeout = 5; // 5 seconds, set to 0 to disable
 
 const numAttempts = 2; // perform 2 attempts before failing
 
-const numPages = 8; // use 8 browser pages
+const numPages = 16; // use 16 browser pages
 
 const numCIJobs = 4; // GitHub Actions run the script in 4 threads
 
@@ -426,19 +426,10 @@ async function makeAttempt( pages, failedScreenshots, cleanPage, isMakeScreensho
 
 		if ( page.error !== undefined ) throw new Error( page.error );
 
-	} catch ( e ) { 
+	} catch ( e ) {
 
-		if ( attemptID === numAttempts - 1 ) {
-
-			console.red( e );
-			failedScreenshots.push( file );
-
-		} else {
-
-			console.yellow( `${ e }, another attempt...` );
-			this.add( file, attemptID + 1 );
-
-		}
+		console.red( e );
+		failedScreenshots.push( file );
 
 	}
 
