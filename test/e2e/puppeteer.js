@@ -58,7 +58,7 @@ async function main() {
 		const queue = [];
 		for ( let j = Math.floor( files.length * i / numCIJobs ); j < Math.floor( files.length * ( i + 1 ) / numCIJobs ); j ++ )
 			queue.push( makeAttempt( pages, cleanPage, files[ j ] ) );
-		await Promise.all( queue );
+		await Promise.allSettled( queue );
 
 	}
 
@@ -183,6 +183,7 @@ async function makeAttempt( pages, cleanPage, file ) {
 
 	} catch ( e ) {
 
+		console.log( file, e );
 		throw e;
 
 	} finally {
