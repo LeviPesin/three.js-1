@@ -303,6 +303,8 @@ async function makeAttempt( pages, cleanPage, file ) {
 
 		}
 
+		await page.screenshot();
+
 	} catch ( e ) { 
 
 		console.error( e );
