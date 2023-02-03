@@ -1,7 +1,39 @@
+import chalk from 'chalk';
 import puppeteer from 'puppeteer';
 import express from 'express';
 import path from 'path';
+import pixelmatch from 'pixelmatch';
+import jimp from 'jimp';
 import * as fs from 'fs/promises';
+
+class PromiseQueue {
+
+	constructor( func, ...args ) {
+
+		this.func = func.bind( this, ...args );
+		this.promises = [];
+
+	}
+
+	add( ...args ) {
+
+		const promise = this.func( ...args );
+		this.promises.push( promise );
+		promise.then( () => this.promises.splice( this.promises.indexOf( promise ), 1 ) );
+
+	}
+
+	async waitForAll() {
+
+		while ( this.promises.length > 0 ) {
+
+			await Promise.all( this.promises );
+
+		}
+
+	}
+
+}
 
 /* CONFIG VARIABLES START */
 
@@ -46,15 +78,26 @@ const exceptionList = [
 /* CONFIG VARIABLES END */
 
 const port = 1234;
+const pixelThreshold = 0.1; // threshold error in one pixel
+const maxDifferentPixels = 0.05; // at most 5% different pixels
 
-const networkTimeout = 1.5; // 1.5 minutes, set to 0 to disable
+const networkTimeout = 5; // 5 minutes, set to 0 to disable
 const renderTimeout = 5; // 5 seconds, set to 0 to disable
 
-const numPages = 16; // use 16 browser pages
+const numAttempts = 2; // perform 2 attempts before failing
+
+const numPages = 8; // use 8 browser pages
+
+const numCIJobs = 4; // GitHub Actions run the script in 4 threads
 
 const width = 400;
 const height = 250;
 const viewScale = 2;
+const jpgQuality = 95;
+
+console.red = msg => console.log( chalk.red( msg ) );
+console.yellow = msg => console.log( chalk.yellow( msg ) );
+console.green = msg => console.log( chalk.green( msg ) );
 
 let browser;
 
@@ -70,28 +113,56 @@ async function main() {
 
 	/* Find files */
 
-	const files = ( await fs.readdir( 'examples' ) )
+	const isMakeScreenshot = process.argv[ 2 ] === '--make';
+
+	const exactList = process.argv.slice( isMakeScreenshot ? 3 : 2 )
+		.map( f => f.replace( '.html', '' ) );
+
+	const isExactList = exactList.length !== 0;
+
+	let files = ( await fs.readdir( 'examples' ) )
 		.filter( s => s.slice( - 5 ) === '.html' && s !== 'index.html' )
 		.map( s => s.slice( 0, s.length - 5 ) )
-		.filter( f => ! exceptionList.includes( f ) );
+		.filter( f => isExactList ? exactList.includes( f ) : ! exceptionList.includes( f ) );
+
+	if ( isExactList ) {
+
+		for ( const file of exactList ) {
+
+			if ( ! files.includes( file ) ) {
+
+				console.log( `Warning! Unrecognised example name: ${ file }` );
+
+			}
+
+		}
+
+	}
 
 	/* Launch browser */
 
-	const flags = [ '--hide-scrollbars', '--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-gl=swiftshader', '--use-angle=swiftshader', '--use-vulkan=swiftshader', '--use-webgpu-adapter=swiftshader' ];
+	const flags = [ '--hide-scrollbars', '--enable-unsafe-webgpu' ];
+	flags.push( '--enable-features=Vulkan', '--use-gl=swiftshader', '--use-angle=swiftshader', '--use-vulkan=swiftshader', '--use-webgpu-adapter=swiftshader' );
+	// if ( process.platform === 'linux' ) flags.push( '--enable-features=Vulkan,UseSkiaRenderer', '--use-vulkan=native', '--disable-vulkan-surface', '--disable-features=VaapiVideoDecoder', '--ignore-gpu-blocklist', '--use-angle=vulkan' );
 
 	const viewport = { width: width * viewScale, height: height * viewScale };
 
 	browser = await puppeteer.launch( {
-		headless: true,
+		headless: ! process.env.VISIBLE,
 		args: flags,
 		defaultViewport: viewport,
 		handleSIGINT: false
 	} );
 
+	// this line is intended to stop the script if the browser (in headful mode) is closed by user (while debugging)
+	// browser.on( 'targetdestroyed', target => ( target.type() === 'other' ) ? close() : null );
+	// for some reason it randomly stops the script after about ~30 screenshots processed
+
 	/* Prepare injections */
 
 	const cleanPage = await fs.readFile( 'test/e2e/clean-page.js', 'utf8' );
 	const injection = await fs.readFile( 'test/e2e/deterministic-injection.js', 'utf8' );
+	const build = ( await fs.readFile( 'build/three.module.js', 'utf8' ) ).replace( /Math\.random\(\) \* 0xffffffff/g, 'Math._random() * 0xffffffff' );
 
 	/* Prepare pages */
 
@@ -100,24 +171,52 @@ async function main() {
 	const pages = await browser.pages();
 	while ( pages.length < numPages && pages.length < files.length ) pages.push( await browser.newPage() );
 
-	for ( const page of pages ) await preparePage( page, injection );
+	for ( const page of pages ) await preparePage( page, injection, build, errorMessagesCache );
 
 	/* Loop for each file */
 
-	for ( let i = 0; i < 4; i ++ ) {
+	const failedScreenshots = [];
 
-		const queue = [];
-		for ( let j = Math.floor( files.length * i / 4 ); j < Math.floor( files.length * ( i + 1 ) / 4 ); j ++ )
-			queue.push( makeAttempt( pages, cleanPage, files[ j ] ) );
-		await Promise.all( queue );
+	const queue = new PromiseQueue( makeAttempt, pages, failedScreenshots, cleanPage, isMakeScreenshot );
+	for ( let i = 0; i < numCIJobs; i ++ ) {
+		for ( let j = Math.floor( files.length * i / numCIJobs ); j < Math.floor( files.length * ( i + 1 ) / numCIJobs ); j ++ )
+			queue.push( files[ j ] );
+
+	}
+	await queue.waitForAll();
+
+	/* Finish */
+
+	failedScreenshots.sort();
+	const list = failedScreenshots.join( ' ' );
+
+	if ( isMakeScreenshot && failedScreenshots.length ) {
+
+		console.red( 'List of failed screenshots: ' + list );
+		console.red( `If you are sure that everything is correct, try to run "npm run make-screenshot ${ list }". If this does not help, try increasing idleTime and parseTime variables in /test/e2e/puppeteer.js file. If this also does not help, add remaining screenshots to the exception list.` );
+		console.red( `${ failedScreenshots.length } from ${ files.length } screenshots have not generated succesfully.` );
+
+	} else if ( isMakeScreenshot && ! failedScreenshots.length ) {
+
+		console.green( `${ files.length } screenshots succesfully generated.` );
+
+	} else if ( failedScreenshots.length ) {
+
+		console.red( 'List of failed screenshots: ' + list );
+		console.red( `If you are sure that everything is correct, try to run "npm run make-screenshot ${ list }". If this does not help, try increasing idleTime and parseTime variables in /test/e2e/puppeteer.js file. If this also does not help, add remaining screenshots to the exception list.` );
+		console.red( `TEST FAILED! ${ failedScreenshots.length } from ${ files.length } screenshots have not rendered correctly.` );
+
+	} else {
+
+		console.green( `TEST PASSED! ${ files.length } screenshots rendered correctly.` );
 
 	}
 
-	close();
+	setTimeout( close, 300, failedScreenshots.length );
 
-}
 
-async function preparePage( page, injection ) {
+
+async function preparePage( page, injection, build, errorMessages ) {
 
 	/* let page.file, page.pageSize, page.error */
 
@@ -179,7 +278,7 @@ async function preparePage( page, injection ) {
 
 		if ( type === 'warning' ) {
 
-			console.warn( text );
+			console.yellow( text );
 
 		} else {
 
@@ -203,9 +302,27 @@ async function preparePage( page, injection ) {
 
 	} );
 
+	page.on( 'request', async ( request ) => {
+
+		if ( request.url() === `http://localhost:${ port }/build/three.module.js` ) {
+
+			await request.respond( {
+				status: 200,
+				contentType: 'application/javascript; charset=utf-8',
+				body: build
+			} );
+
+		} else {
+
+			await request.continue();
+
+		}
+
+	} );
+
 }
 
-async function makeAttempt( pages, cleanPage, file ) {
+async function makeAttempt( pages, failedScreenshots, cleanPage, isMakeScreenshot, file, attemptID = 0 ) {
 
 	const page = await new Promise( ( resolve, reject ) => {
 
@@ -299,15 +416,89 @@ async function makeAttempt( pages, cleanPage, file ) {
 
 				throw new Error( `Error happened while rendering file ${ file }: ${ e }` );
 
+			} /* else { // This can mean that the example doesn't use requestAnimationFrame loop
+				console.yellow( `Render timeout exceeded in file ${ file }` );
+			} */ // TODO: fix this
+
+		}
+
+		const screenshot = ( await jimp.read( await page.screenshot() ) ).scale( 1 / viewScale ).quality( jpgQuality );
+
+		if ( page.error !== undefined ) throw new Error( page.error );
+
+		if ( isMakeScreenshot ) {
+
+			/* Make screenshots */
+
+			await screenshot.writeAsync( `examples/screenshots/${ file }.jpg` );
+
+			console.green( `Screenshot generated for file ${ file }` );
+
+		} else {
+
+			/* Diff screenshots */
+
+			let expected;
+
+			try {
+
+				expected = await jimp.read( `examples/screenshots/${ file }.jpg` );
+
+			} catch {
+
+				throw new Error( `Screenshot does not exist: ${ file }` );
+
+			}
+
+			const actual = screenshot.bitmap;
+			const diff = screenshot.clone();
+
+			let numDifferentPixels;
+
+			try {
+
+				numDifferentPixels = pixelmatch( expected.bitmap.data, actual.data, diff.bitmap.data, actual.width, actual.height, {
+					threshold: pixelThreshold,
+					alpha: 0.2
+				} );
+
+			} catch {
+
+				throw new Error( `Image sizes does not match in file: ${ file }` );
+
+			}
+
+			numDifferentPixels /= actual.width * actual.height;
+
+			/* Print results */
+
+			const differentPixels = 100 * numDifferentPixels;
+
+			if ( numDifferentPixels < maxDifferentPixels ) {
+
+				console.green( `Diff ${ differentPixels.toFixed( 1 ) }% in file: ${ file }` );
+
+			} else {
+
+				throw new Error( `Diff wrong in ${ differentPixels.toFixed( 1 ) }% of pixels in file: ${ file }` );
+
 			}
 
 		}
 
-		await page.screenshot();
-
 	} catch ( e ) { 
 
-		console.error( e );
+		if ( attemptID === numAttempts - 1 ) {
+
+			console.red( e );
+			failedScreenshots.push( file );
+
+		} else {
+
+			console.yellow( `${ e }, another attempt...` );
+			this.add( file, attemptID + 1 );
+
+		}
 
 	}
 
@@ -315,10 +506,12 @@ async function makeAttempt( pages, cleanPage, file ) {
 
 }
 
-function close() {
+function close( exitCode = 1 ) {
+
+	console.log( 'Closing...' );
 
 	if ( browser !== undefined ) browser.close();
 	server.close();
-	process.exit( 0 );
+	process.exit( exitCode );
 
 }
