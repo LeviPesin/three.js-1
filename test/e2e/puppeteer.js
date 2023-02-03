@@ -72,8 +72,6 @@ async function preparePage( page, injection, build ) {
 	await page.evaluateOnNewDocument( injection );
 	await page.setRequestInterception( true );
 
-	page.on( 'console', () => {} );
-
 	page.on( 'response', async ( response ) => {
 
 		try {
