@@ -47,8 +47,7 @@ async function main() {
 	/* Prepare pages */
 
 	const pages = await browser.pages();
-	while ( pages.length < numPages && pages.length < files.length ) pages.push( await browser.newPage() );
-
+	while ( pages.length < numPages ) pages.push( await browser.newPage() );
 	for ( const page of pages ) await preparePage( page, injection, build );
 
 	/* Loop for each file */
@@ -58,7 +57,7 @@ async function main() {
 		const queue = [];
 		for ( let j = Math.floor( files.length * i / numCIJobs ); j < Math.floor( files.length * ( i + 1 ) / numCIJobs ); j ++ )
 			queue.push( makeAttempt( pages, cleanPage, files[ j ] ) );
-		await Promise.allSettled( queue );
+		await Promise.all( queue );
 
 	}
 
@@ -68,7 +67,7 @@ async function main() {
 
 async function preparePage( page, injection, build ) {
 
-	/* let page.file, page.pageSize, page.error */
+	/* let page.file, page.pageSize */
 
 	await page.evaluateOnNewDocument( injection );
 	await page.setRequestInterception( true );
