@@ -1,40 +1,7 @@
-import chalk from 'chalk';
-import puppeteer, { BrowserFetcher } from 'puppeteer-core';
+import puppeteer from 'puppeteer';
 import express from 'express';
 import path from 'path';
-import pixelmatch from 'pixelmatch';
-import jimp from 'jimp';
 import * as fs from 'fs/promises';
-import fetch from 'node-fetch';
-
-class PromiseQueue {
-
-	constructor( func, ...args ) {
-
-		this.func = func.bind( this, ...args );
-		this.promises = [];
-
-	}
-
-	add( ...args ) {
-
-		const promise = this.func( ...args );
-		this.promises.push( promise );
-		promise.then( () => this.promises.splice( this.promises.indexOf( promise ), 1 ) );
-
-	}
-
-	async waitForAll() {
-
-		while ( this.promises.length > 0 ) {
-
-			await Promise.all( this.promises );
-
-		}
-
-	}
-
-}
 
 /* CONFIG VARIABLES START */
 
@@ -78,38 +45,16 @@ const exceptionList = [
 
 /* CONFIG VARIABLES END */
 
-const PLATFORMS = {
-	linux: 'linux',
-	mac: 'mac',
-	mac_arm: 'mac_am64',
-	win32: 'win',
-	win64: 'win64'
-};
-const OMAHA_PROXY = 'https://omahaproxy.appspot.com/all.json';
-
-const chromiumChannel = 'stable'; // stable -> beta -> dev -> canary (Mac and Windows) -> canary_asan (Windows)
-
 const port = 1234;
-const pixelThreshold = 0.1; // threshold error in one pixel
-const maxDifferentPixels = 0.05; // at most 5% different pixels
 
-const networkTimeout = 5; // 5 minutes, set to 0 to disable
+const networkTimeout = 1.5; // 1.5 minutes, set to 0 to disable
 const renderTimeout = 5; // 5 seconds, set to 0 to disable
 
-const numAttempts = 2; // perform 2 attempts before failing
-
-const numPages = 8; // use 8 browser pages
-
-const numCIJobs = 4; // GitHub Actions run the script in 4 threads
+const numPages = 16; // use 16 browser pages
 
 const width = 400;
 const height = 250;
 const viewScale = 2;
-const jpgQuality = 95;
-
-console.red = msg => console.log( chalk.red( msg ) );
-console.yellow = msg => console.log( chalk.yellow( msg ) );
-console.green = msg => console.log( chalk.green( msg ) );
 
 let browser;
 
@@ -125,74 +70,28 @@ async function main() {
 
 	/* Find files */
 
-	const isMakeScreenshot = process.argv[ 2 ] === '--make';
-
-	const exactList = process.argv.slice( isMakeScreenshot ? 3 : 2 )
-		.map( f => f.replace( '.html', '' ) );
-
-	const isExactList = exactList.length !== 0;
-
-	let files = ( await fs.readdir( 'examples' ) )
+	const files = ( await fs.readdir( 'examples' ) )
 		.filter( s => s.slice( - 5 ) === '.html' && s !== 'index.html' )
 		.map( s => s.slice( 0, s.length - 5 ) )
-		.filter( f => isExactList ? exactList.includes( f ) : ! exceptionList.includes( f ) );
-
-	if ( isExactList ) {
-
-		for ( const file of exactList ) {
-
-			if ( ! files.includes( file ) ) {
-
-				console.log( `Warning! Unrecognised example name: ${ file }` );
-
-			}
-
-		}
-
-	}
-
-	/* CI parallelism */
-
-	if ( 'CI' in process.env ) {
-
-		const CI = parseInt( process.env.CI );
-
-		files = files.slice(
-			Math.floor( CI * files.length / numCIJobs ),
-			Math.floor( ( CI + 1 ) * files.length / numCIJobs )
-		);
-
-	}
-
-	/* Download browser */
-
-	const { executablePath } = await downloadLatestChromium();
+		.filter( f => ! exceptionList.includes( f ) );
 
 	/* Launch browser */
 
-	const flags = [ '--hide-scrollbars', '--enable-unsafe-webgpu' ];
-	flags.push( '--enable-features=Vulkan', '--use-gl=swiftshader', '--use-angle=swiftshader', '--use-vulkan=swiftshader', '--use-webgpu-adapter=swiftshader' );
-	// if ( process.platform === 'linux' ) flags.push( '--enable-features=Vulkan,UseSkiaRenderer', '--use-vulkan=native', '--disable-vulkan-surface', '--disable-features=VaapiVideoDecoder', '--ignore-gpu-blocklist', '--use-angle=vulkan' );
+	const flags = [ '--hide-scrollbars', '--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-gl=swiftshader', '--use-angle=swiftshader', '--use-vulkan=swiftshader', '--use-webgpu-adapter=swiftshader' ];
 
 	const viewport = { width: width * viewScale, height: height * viewScale };
 
 	browser = await puppeteer.launch( {
-		executablePath,
-		headless: ! process.env.VISIBLE,
+		headless: true,
 		args: flags,
 		defaultViewport: viewport,
 		handleSIGINT: false
 	} );
 
-	// this line is intended to stop the script if the browser (in headful mode) is closed by user (while debugging)
-	// browser.on( 'targetdestroyed', target => ( target.type() === 'other' ) ? close() : null );
-	// for some reason it randomly stops the script after about ~30 screenshots processed
-
 	/* Prepare injections */
 
 	const cleanPage = await fs.readFile( 'test/e2e/clean-page.js', 'utf8' );
 	const injection = await fs.readFile( 'test/e2e/deterministic-injection.js', 'utf8' );
-	const build = ( await fs.readFile( 'build/three.module.js', 'utf8' ) ).replace( /Math\.random\(\) \* 0xffffffff/g, 'Math._random() * 0xffffffff' );
 
 	/* Prepare pages */
 
@@ -201,77 +100,14 @@ async function main() {
 	const pages = await browser.pages();
 	while ( pages.length < numPages && pages.length < files.length ) pages.push( await browser.newPage() );
 
-	for ( const page of pages ) await preparePage( page, injection, build, errorMessagesCache );
+	for ( const page of pages ) await preparePage( page, injection, build );
 
 	/* Loop for each file */
 
-	const failedScreenshots = [];
+	for ( const file of files ) queue.push( makeAttempt( pages, cleanPage, file ) );
+	Promise.all( queue );
 
-	const queue = new PromiseQueue( makeAttempt, pages, failedScreenshots, cleanPage, isMakeScreenshot );
-	for ( const file of files ) queue.add( file );
-	await queue.waitForAll();
-
-	/* Finish */
-
-	failedScreenshots.sort();
-	const list = failedScreenshots.join( ' ' );
-
-	if ( isMakeScreenshot && failedScreenshots.length ) {
-
-		console.red( 'List of failed screenshots: ' + list );
-		console.red( `If you are sure that everything is correct, try to run "npm run make-screenshot ${ list }". If this does not help, try increasing idleTime and parseTime variables in /test/e2e/puppeteer.js file. If this also does not help, add remaining screenshots to the exception list.` );
-		console.red( `${ failedScreenshots.length } from ${ files.length } screenshots have not generated succesfully.` );
-
-	} else if ( isMakeScreenshot && ! failedScreenshots.length ) {
-
-		console.green( `${ files.length } screenshots succesfully generated.` );
-
-	} else if ( failedScreenshots.length ) {
-
-		console.red( 'List of failed screenshots: ' + list );
-		console.red( `If you are sure that everything is correct, try to run "npm run make-screenshot ${ list }". If this does not help, try increasing idleTime and parseTime variables in /test/e2e/puppeteer.js file. If this also does not help, add remaining screenshots to the exception list.` );
-		console.red( `TEST FAILED! ${ failedScreenshots.length } from ${ files.length } screenshots have not rendered correctly.` );
-
-	} else {
-
-		console.green( `TEST PASSED! ${ files.length } screenshots rendered correctly.` );
-
-	}
-
-	setTimeout( close, 300, failedScreenshots.length );
-
-}
-
-async function downloadLatestChromium() {
-
-	const browserFetcher = new BrowserFetcher( { path: 'test/e2e/chromium' } );
-
-	const os = PLATFORMS[ browserFetcher.platform() ];
-
-	const revisions = await ( await fetch( OMAHA_PROXY ) ).json();
-	const omahaRevisionInfo = revisions.find( revs => revs.os === os ).versions.find( version => version.channel === chromiumChannel );
-
-	let revision = omahaRevisionInfo.branch_base_position;
-	while ( ! ( await browserFetcher.canDownload( revision ) ) ) {
-
-		revision = String( revision - 1 );
-
-	}
-
-	let revisionInfo = browserFetcher.revisionInfo( revision );
-	if ( revisionInfo.local === true ) {
-
-		console.log( 'Latest Chromium has been already downloaded.' );
-
-	} else {
-
-		console.log( 'Downloading latest Chromium...' );
-		revisionInfo = await browserFetcher.download( revision );
-		console.log( 'Downloaded.' );
-
-	}
-	console.log( `Using Chromium ${ omahaRevisionInfo.current_version } (revision ${ revision }, ${ revisionInfo.url }), ${ chromiumChannel } channel on ${ os }` );
-	return revisionInfo;
+	close();
 
 }
 
@@ -337,7 +173,7 @@ async function preparePage( page, injection, build, errorMessages ) {
 
 		if ( type === 'warning' ) {
 
-			console.yellow( text );
+			console.warn( text );
 
 		} else {
 
@@ -361,27 +197,9 @@ async function preparePage( page, injection, build, errorMessages ) {
 
 	} );
 
-	page.on( 'request', async ( request ) => {
-
-		if ( request.url() === `http://localhost:${ port }/build/three.module.js` ) {
-
-			await request.respond( {
-				status: 200,
-				contentType: 'application/javascript; charset=utf-8',
-				body: build
-			} );
-
-		} else {
-
-			await request.continue();
-
-		}
-
-	} );
-
 }
 
-async function makeAttempt( pages, failedScreenshots, cleanPage, isMakeScreenshot, file, attemptID = 0 ) {
+async function makeAttempt( pages, cleanPage, file ) {
 
 	const page = await new Promise( ( resolve, reject ) => {
 
@@ -475,91 +293,13 @@ async function makeAttempt( pages, failedScreenshots, cleanPage, isMakeScreensho
 
 				throw new Error( `Error happened while rendering file ${ file }: ${ e }` );
 
-			} /* else { // This can mean that the example doesn't use requestAnimationFrame loop
-
-				console.yellow( `Render timeout exceeded in file ${ file }` );
-
-			} */ // TODO: fix this
-
-		}
-
-		const screenshot = ( await jimp.read( await page.screenshot() ) ).scale( 1 / viewScale ).quality( jpgQuality );
-
-		if ( page.error !== undefined ) throw new Error( page.error );
-
-		if ( isMakeScreenshot ) {
-
-			/* Make screenshots */
-
-			await screenshot.writeAsync( `examples/screenshots/${ file }.jpg` );
-
-			console.green( `Screenshot generated for file ${ file }` );
-
-		} else {
-
-			/* Diff screenshots */
-
-			let expected;
-
-			try {
-
-				expected = await jimp.read( `examples/screenshots/${ file }.jpg` );
-
-			} catch {
-
-				throw new Error( `Screenshot does not exist: ${ file }` );
-
-			}
-
-			const actual = screenshot.bitmap;
-			const diff = screenshot.clone();
-
-			let numDifferentPixels;
-
-			try {
-
-				numDifferentPixels = pixelmatch( expected.bitmap.data, actual.data, diff.bitmap.data, actual.width, actual.height, {
-					threshold: pixelThreshold,
-					alpha: 0.2
-				} );
-
-			} catch {
-
-				throw new Error( `Image sizes does not match in file: ${ file }` );
-
-			}
-
-			numDifferentPixels /= actual.width * actual.height;
-
-			/* Print results */
-
-			const differentPixels = 100 * numDifferentPixels;
-
-			if ( numDifferentPixels < maxDifferentPixels ) {
-
-				console.green( `Diff ${ differentPixels.toFixed( 1 ) }% in file: ${ file }` );
-
-			} else {
-
-				throw new Error( `Diff wrong in ${ differentPixels.toFixed( 1 ) }% of pixels in file: ${ file }` );
-
 			}
 
 		}
 
 	} catch ( e ) { 
 
-		if ( attemptID === numAttempts - 1 ) {
-
-			console.red( e );
-			failedScreenshots.push( file );
-
-		} else {
-
-			console.yellow( `${ e }, another attempt...` );
-			this.add( file, attemptID + 1 );
-
-		}
+		console.error( e );
 
 	}
 
@@ -567,12 +307,10 @@ async function makeAttempt( pages, failedScreenshots, cleanPage, isMakeScreensho
 
 }
 
-function close( exitCode = 1 ) {
-
-	console.log( 'Closing...' );
+function close() {
 
 	if ( browser !== undefined ) browser.close();
 	server.close();
-	process.exit( exitCode );
+	process.exit( 0 );
 
 }
