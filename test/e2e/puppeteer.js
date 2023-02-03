@@ -3,47 +3,8 @@ import express from 'express';
 import path from 'path';
 import * as fs from 'fs/promises';
 
-/* CONFIG VARIABLES START */
-
 const idleTime = 9; // 9 seconds - for how long there should be no network requests
 const parseTime = 6; // 6 seconds per megabyte
-
-const exceptionList = [
-
-	// video tag not deterministic enough
-	'css3d_youtube',
-	'webgl_video_kinect',
-	'webgl_video_panorama_equirectangular',
-
-	'webaudio_visualizer', // audio can't be analyzed without proper audio hook
-
-	'webgl_effects_ascii', // blink renders text differently in every platform
-
-	'webxr_ar_lighting', // webxr
-
-	'webgl_worker_offscreencanvas', // in a worker, not robust
-
-	// TODO: most of these can be fixed just by increasing idleTime and parseTime
-	'webgl_buffergeometry_glbufferattribute',
-	'webgl_lensflares',
-	'webgl_lines_sphere',
-	'webgl_loader_imagebitmap',
-	'webgl_loader_texture_lottie',
-	'webgl_loader_texture_pvrtc',
-	'webgl_morphtargets_face',
-	'webgl_nodes_materials_standard',
-	'webgl_postprocessing_crossfade',
-	'webgl_postprocessing_dof2',
-	'webgl_raymarching_reflect',
-	'webgl_renderer_pathtracer',
-	'webgl_shadowmap',
-	'webgl_shadowmap_progressive',
-	'webgl_test_memory2',
-	'webgl_tiled_forward'
-
-];
-
-/* CONFIG VARIABLES END */
 
 const port = 1234;
 
@@ -53,10 +14,6 @@ const renderTimeout = 5; // 5 seconds, set to 0 to disable
 const numPages = 16; // use 16 browser pages
 
 const numCIJobs = 4; // GitHub Actions run the script in 4 threads
-
-const width = 400;
-const height = 250;
-const viewScale = 2;
 
 let browser;
 
@@ -75,16 +32,11 @@ async function main() {
 	let files = ( await fs.readdir( 'examples' ) )
 		.filter( s => s.slice( - 5 ) === '.html' && s !== 'index.html' )
 		.map( s => s.slice( 0, s.length - 5 ) )
-		.filter( f => ! exceptionList.includes( f ) && ! f.startsWith( 'webgpu' ) );
+		.filter( f => ! f.startsWith( 'webgpu' ) );
 
 	/* Launch browser */
 
-	const viewport = { width: width * viewScale, height: height * viewScale };
-
-	browser = await puppeteer.launch( {
-		headless: true,
-		defaultViewport: viewport
-	} );
+	browser = await puppeteer.launch( { headless: true } );
 
 	/* Prepare injections */
 
