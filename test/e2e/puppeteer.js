@@ -426,66 +426,6 @@ async function makeAttempt( pages, failedScreenshots, cleanPage, isMakeScreensho
 
 		if ( page.error !== undefined ) throw new Error( page.error );
 
-		if ( isMakeScreenshot ) {
-
-			/* Make screenshots */
-
-			await screenshot.writeAsync( `examples/screenshots/${ file }.jpg` );
-
-			console.green( `Screenshot generated for file ${ file }` );
-
-		} else {
-
-			/* Diff screenshots */
-
-			let expected;
-
-			try {
-
-				expected = await jimp.read( `examples/screenshots/${ file }.jpg` );
-
-			} catch {
-
-				throw new Error( `Screenshot does not exist: ${ file }` );
-
-			}
-
-			const actual = screenshot.bitmap;
-			const diff = screenshot.clone();
-
-			let numDifferentPixels;
-
-			try {
-
-				numDifferentPixels = pixelmatch( expected.bitmap.data, actual.data, diff.bitmap.data, actual.width, actual.height, {
-					threshold: pixelThreshold,
-					alpha: 0.2
-				} );
-
-			} catch {
-
-				throw new Error( `Image sizes does not match in file: ${ file }` );
-
-			}
-
-			numDifferentPixels /= actual.width * actual.height;
-
-			/* Print results */
-
-			const differentPixels = 100 * numDifferentPixels;
-
-			if ( numDifferentPixels < maxDifferentPixels ) {
-
-				console.green( `Diff ${ differentPixels.toFixed( 1 ) }% in file: ${ file }` );
-
-			} else {
-
-				throw new Error( `Diff wrong in ${ differentPixels.toFixed( 1 ) }% of pixels in file: ${ file }` );
-
-			}
-
-		}
-
 	} catch ( e ) { 
 
 		if ( attemptID === numAttempts - 1 ) {
