@@ -104,8 +104,9 @@ async function main() {
 
 	/* Loop for each file */
 
+	const queue = [];
 	for ( const file of files ) queue.push( makeAttempt( pages, cleanPage, file ) );
-	Promise.all( queue );
+	await Promise.all( queue );
 
 	close();
 
