@@ -180,7 +180,7 @@ async function main() {
 	const queue = new PromiseQueue( makeAttempt, pages, failedScreenshots, cleanPage, isMakeScreenshot );
 	for ( let i = 0; i < numCIJobs; i ++ ) {
 		for ( let j = Math.floor( files.length * i / numCIJobs ); j < Math.floor( files.length * ( i + 1 ) / numCIJobs ); j ++ )
-			queue.push( files[ j ] );
+			queue.add( files[ j ] );
 
 	}
 	await queue.waitForAll();
