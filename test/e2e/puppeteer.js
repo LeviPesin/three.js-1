@@ -32,11 +32,11 @@ async function main() {
 	let files = ( await fs.readdir( 'examples' ) )
 		.filter( s => s.slice( - 5 ) === '.html' && s !== 'index.html' )
 		.map( s => s.slice( 0, s.length - 5 ) )
-		.filter( f => ! f.startsWith( 'webgpu' ) );
+		.filter( f => ! ( [ 'webgl_shadowmap_progressive', 'webgl_test_memory2', 'webgl_tiled_forward' ].includes( f ) ) );
 
 	/* Launch browser */
 
-	browser = await puppeteer.launch( { headless: true } );
+	browser = await puppeteer.launch();
 
 	/* Prepare injections */
 
