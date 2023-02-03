@@ -100,7 +100,7 @@ async function main() {
 	const pages = await browser.pages();
 	while ( pages.length < numPages && pages.length < files.length ) pages.push( await browser.newPage() );
 
-	for ( const page of pages ) await preparePage( page, injection, build );
+	for ( const page of pages ) await preparePage( page, injection );
 
 	/* Loop for each file */
 
@@ -111,7 +111,7 @@ async function main() {
 
 }
 
-async function preparePage( page, injection, build, errorMessages ) {
+async function preparePage( page, injection ) {
 
 	/* let page.file, page.pageSize, page.error */
 
