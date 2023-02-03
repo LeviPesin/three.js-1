@@ -214,7 +214,7 @@ async function main() {
 
 	setTimeout( close, 300, failedScreenshots.length );
 
-
+}
 
 async function preparePage( page, injection, build, errorMessages ) {
 
