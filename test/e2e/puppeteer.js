@@ -38,11 +38,15 @@ async function main() {
 
 	browser = await puppeteer.launch();
 
+	/* Prepare injection */
+
+	const injection = await fs.readFile( 'test/e2e/deterministic-injection.js', 'utf8' );
+
 	/* Prepare pages */
 
 	const pages = await browser.pages();
 	while ( pages.length < numPages ) pages.push( await browser.newPage() );
-	for ( const page of pages ) await preparePage( page );
+	for ( const page of pages ) await preparePage( page, injection );
 
 	/* Loop for each file */
 
@@ -59,9 +63,11 @@ async function main() {
 
 }
 
-async function preparePage( page ) {
+async function preparePage( page, injection ) {
 
 	/* let page.file, page.pageSize */
+
+	await page.evaluateOnNewDocument( injection );
 
 	page.on( 'response', async ( response ) => {
 
@@ -115,31 +121,6 @@ async function makeAttempt( pages, file ) {
 
 		/* Render page */
 
-		await page.evaluate( () => {
-
-			let frameId = 0;
-			const now = () => frameId * 16;
-			const RAF = window.requestAnimationFrame;
-			window._renderStarted = false;
-			const maxFrameId = 2;
-			window.requestAnimationFrame = function ( cb ) {
-				if ( ! window._renderStarted ) {
-					setTimeout( function () {
-						requestAnimationFrame( cb );
-					}, 50 );
-				} else {
-					RAF( function () {
-						if ( frameId ++ < maxFrameId ) {
-							cb( now() );
-						} else {
-							window._renderFinished = true;
-						}
-					} );
-				}
-			};
-
-		} );
-
 		await page.waitForNetworkIdle( {
 			timeout: networkTimeout * 60000,
 			idleTime: idleTime * 1000
@@ -155,11 +136,11 @@ async function makeAttempt( pages, file ) {
 
 			await new Promise( function ( resolve, reject ) {
 
-				const renderStart = performance.now();
+				const renderStart = performance._now();
 
 				const waitingLoop = setInterval( function () {
 
-					const renderTimeoutExceeded = ( renderTimeout > 0 ) && ( performance.now() - renderStart > 1000 * renderTimeout );
+					const renderTimeoutExceeded = ( renderTimeout > 0 ) && ( performance._now() - renderStart > 1000 * renderTimeout );
 
 					if ( renderTimeoutExceeded || window._renderFinished ) {
 
