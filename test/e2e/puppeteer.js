@@ -130,11 +130,11 @@ async function makeAttempt( pages, file ) {
 
 			await new Promise( function ( resolve, reject ) {
 
-				const renderStart = performance._now();
+				const renderStart = performance.now();
 
 				const waitingLoop = setInterval( function () {
 
-					const renderTimeoutExceeded = ( renderTimeout > 0 ) && ( performance._now() - renderStart > 1000 * renderTimeout );
+					const renderTimeoutExceeded = ( renderTimeout > 0 ) && ( performance.now() - renderStart > 1000 * renderTimeout );
 
 					if ( renderTimeoutExceeded || window._renderFinished ) {
 
