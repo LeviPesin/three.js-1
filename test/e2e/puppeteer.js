@@ -115,6 +115,31 @@ async function makeAttempt( pages, file ) {
 
 		/* Render page */
 
+		await page.evaluate( () => {
+
+			let frameId = 0;
+			const now = () => frameId * 16;
+			const RAF = window.requestAnimationFrame;
+			window._renderStarted = false;
+			const maxFrameId = 2;
+			window.requestAnimationFrame = function ( cb ) {
+				if ( ! window._renderStarted ) {
+					setTimeout( function () {
+						requestAnimationFrame( cb );
+					}, 50 );
+				} else {
+					RAF( function () {
+						if ( frameId ++ < maxFrameId ) {
+							cb( now() );
+						} else {
+							window._renderFinished = true;
+						}
+					} );
+				}
+			};
+
+		} );
+
 		await page.waitForNetworkIdle( {
 			timeout: networkTimeout * 60000,
 			idleTime: idleTime * 1000
