@@ -38,15 +38,11 @@ async function main() {
 
 	browser = await puppeteer.launch();
 
-	/* Prepare injections */
-
-	const injection = await fs.readFile( 'test/e2e/deterministic-injection.js', 'utf8' );
-
 	/* Prepare pages */
 
 	const pages = await browser.pages();
 	while ( pages.length < numPages ) pages.push( await browser.newPage() );
-	for ( const page of pages ) await preparePage( page, injection );
+	for ( const page of pages ) await preparePage( page );
 
 	/* Loop for each file */
 
@@ -63,11 +59,9 @@ async function main() {
 
 }
 
-async function preparePage( page, injection ) {
+async function preparePage( page ) {
 
 	/* let page.file, page.pageSize */
-
-	await page.evaluateOnNewDocument( injection );
 
 	page.on( 'response', async ( response ) => {
 
