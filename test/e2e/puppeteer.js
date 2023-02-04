@@ -85,7 +85,7 @@ async function preparePage( page, injection ) {
 
 }
 
-async function makeAttempt( pages, cleanPage, file ) {
+async function makeAttempt( pages, file ) {
 
 	const page = await new Promise( ( resolve, reject ) => {
 
