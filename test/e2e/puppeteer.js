@@ -140,7 +140,7 @@ async function makeAttempt( pages, file ) {
 
 				const waitingLoop = setInterval( function () {
 
-					const renderTimeoutExceeded = ( renderTimeout > 0 ) && ( performance._now() - renderStart > 1000 * renderTimeout );
+					const renderTimeoutExceeded = performance._now() - renderStart > 1000 * renderTimeout;
 
 					if ( renderTimeoutExceeded || window._renderFinished ) {
 
@@ -153,7 +153,7 @@ async function makeAttempt( pages, file ) {
 
 			} );
 
-		}, renderTimeout, parseTime * 1000 );
+		}, renderTimeout, page.pageSize / 1024 / 1024 * parseTime * 1000 );
 
 	} catch ( e ) {
 
