@@ -153,7 +153,7 @@ async function makeAttempt( pages, file ) {
 
 			} );
 
-		}, renderTimeout, page.pageSize / 1024 / 1024 * parseTime * 1000 );
+		}, renderTimeout, parseTime * 1000 );
 
 	} catch ( e ) {
 
