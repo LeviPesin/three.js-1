@@ -40,7 +40,6 @@ async function main() {
 
 	/* Prepare injections */
 
-	const cleanPage = await fs.readFile( 'test/e2e/clean-page.js', 'utf8' );
 	const injection = await fs.readFile( 'test/e2e/deterministic-injection.js', 'utf8' );
 
 	/* Prepare pages */
@@ -55,12 +54,12 @@ async function main() {
 
 		const queue = [];
 		for ( let j = Math.floor( files.length * i / numCIJobs ); j < Math.floor( files.length * ( i + 1 ) / numCIJobs ); j ++ )
-			queue.push( makeAttempt( pages, cleanPage, files[ j ] ) );
+			queue.push( makeAttempt( pages, files[ j ] ) );
 		await Promise.all( queue );
 
 	}
 
-	close(0);
+	close( 0 );
 
 }
 
@@ -121,8 +120,6 @@ async function makeAttempt( pages, cleanPage, file ) {
 		} );
 
 		/* Render page */
-
-		await page.evaluate( cleanPage );
 
 		await page.waitForNetworkIdle( {
 			timeout: networkTimeout * 60000,
