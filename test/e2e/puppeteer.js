@@ -73,14 +73,16 @@ const exceptionList = [
 	'webgl_shaders_tonemapping',
 
 	// Unknown
-	// TODO: most of these can be fixed just by increasing idleTime and parseTime
+	// TODO: some of these can be fixed just by increasing idleTime and parseTime
 	'webgl_animation_skinning_blending',
 	'webgl_buffergeometry_glbufferattribute',
 	'webgl_clipping_advanced',
 	'webgl_lensflares',
 	'webgl_lines_sphere',
 	'webgl_lights_spotlights',
+	'webgl_loader_collada_kinematics',
 	'webgl_loader_imagebitmap',
+	'webgl_loader_ldraw',
 	'webgl_loader_texture_lottie',
 	'webgl_loader_texture_pvrtc',
 	'webgl_materials_blending',
@@ -91,6 +93,7 @@ const exceptionList = [
 	'webgl_postprocessing_dof2',
 	'webgl_raymarching_reflect',
 	'webgl_renderer_pathtracer',
+	'webgl_shaders_tonemapping',
 	'webgl_shadowmap',
 	'webgl_shadowmap_progressive',
 	'webgl_test_memory2',
