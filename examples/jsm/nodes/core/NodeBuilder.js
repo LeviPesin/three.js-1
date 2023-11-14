@@ -1063,6 +1063,10 @@ class NodeBuilder {
 		this.buildCode();
 		this.buildUpdateNodes();
 
+		if ( this.vertexShader ) console.log( this.vertexShader )
+		if ( this.fragmentShader ) console.log( this.fragmentShader )
+		if ( this.computeShader ) console.log( this.computeShader )
+
 		return this;
 
 	}
