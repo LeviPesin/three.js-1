@@ -129,6 +129,12 @@
 							mesh = new THREE.Mesh( geometry, material );
 							mesh.position.x = 1;
 							mesh.position.y = 1;
+							group.add( mesh );material = new THREE.MeshPhysicalMaterial( {
+								normalMap: normalMap
+							} );
+							mesh = new THREE.Mesh( geometry, material );
+							mesh.position.x = 1;
+							mesh.position.y = 2;
 							group.add( mesh );
 
 							// golf
